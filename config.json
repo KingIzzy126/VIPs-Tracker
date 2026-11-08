@@ -1,0 +1,78 @@
+{
+  "game": {
+    "name": "Star Wars: Roleplay",
+    "place_id": 4238077359
+  },
+  "extra_vips": [
+  ],
+  "groups": [
+    {
+      "id": 5214183,
+      "name": "GAR",
+      "tiers": [
+        {
+          "tier": "GAR Officer",
+          "studs": 3,
+          "colour": "#2F6FDE",
+          "roles": ["Second Lieutenant", "Lieutenant", "Captain", "Major"]
+        },
+        {
+          "tier": "Senior Officer",
+          "studs": 5,
+          "colour": "#2B4F9E",
+          "roles": ["Lieutenant Colonel", "Colonel", "Brigadier General"]
+        },
+        {
+          "tier": "GAR HICOM",
+          "studs": 6,
+          "colour": "#0000FF",
+          "roles": ["Battalion Commander", "Regimental Commander", "Marshal Commander", "Grand Marshal"]
+        },
+        {
+          "tier": "Chancellorship",
+          "studs": 12,
+          "colour": "#FFFF00",
+          "roles": ["Vice Chancellor"]
+        },
+        {
+          "tier": "Chancellorship",
+          "studs": 12,
+          "colour": "#FFFF00",
+          "display_rank": "Supreme Chancellor",
+          "roles": ["Owner"]
+        }
+      ]
+    },
+    {
+      "id": 5369125,
+      "name": "CG",
+      "tiers": [
+        {
+          "tier": "CG CC",
+          "studs": 3,
+          "colour": "#FF0000",
+          "roles": ["Sergeant Hound", "Company Commander"]
+        },
+        {
+          "tier": "CG HICOM",
+          "studs": 5,
+          "colour": "#8B0000",
+          "roles": ["Lieutenant Thire", "Commander Thorn", "Commander Fox"]
+        },
+        {
+          "tier": "CG HICOM",
+          "studs": 5,
+          "colour": "#8B0000",
+          "note": "CG Overseer: only a VIP while in the CG Overseer morph.",
+          "roles": ["Overseer"]
+        },
+        {
+          "tier": "Chancellorship",
+          "studs": 12,
+          "colour": "#FFFF00",
+          "roles": ["Supreme Chancellor"]
+        }
+      ]
+    }
+  ]
+}
