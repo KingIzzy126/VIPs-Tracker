@@ -25,6 +25,7 @@ MEMBERS_URL = "https://groups.roblox.com/v1/groups/{group}/roles/{role}/users"
 PRESENCE_URL = "https://presence.roblox.com/v1/presence/users"
 AUTH_URL = "https://users.roblox.com/v1/users/authenticated"
 GAME_URL = "https://www.roblox.com/games/4238077359/Star-Wars-Roleplay"
+PUBLIC_SERVERS_URL = "https://games.roblox.com/v1/games/{place_id}/servers/Public"
 
 IN_GAME_PRESENCE = 2
 PRESENCE_BATCH = 30
@@ -32,6 +33,7 @@ DISCORD_EMBEDS_PER_MESSAGE = 10
 DISCORD_ATTEMPTS = 5
 ROSTER_REFRESH_SECONDS = 30 * 60
 COOKIE_CHECK_SECONDS = 60 * 60
+PUBLIC_SERVERS_CACHE_SECONDS = 60  # Refresh public server list every minute
 FAILURES_BEFORE_WARNING = 3
 DOWNTIME_NOTICE_SECONDS = 120
 MAX_BACKOFF_SECONDS = 300
@@ -98,6 +100,27 @@ class RobloxClient:
             response.raise_for_status()
             return response.json()["userPresences"]
         raise RuntimeError("Roblox rejected the presence request after refreshing the token")
+
+    def public_servers(self, place_id):
+        """Returns a set of gameIds for all public servers of a place, paging through all results."""
+        server_ids = set()
+        cursor = ""
+        while True:
+            params = {"limit": 100, "sortOrder": "Asc"}
+            if cursor:
+                params["cursor"] = cursor
+            try:
+                data = self._get(PUBLIC_SERVERS_URL.format(place_id=place_id), params=params)
+            except requests.RequestException:
+                # If the request fails, return whatever we have so far.
+                break
+            for server in data.get("data", []):
+                if server.get("id"):
+                    server_ids.add(server["id"])
+            cursor = data.get("nextPageCursor")
+            if not cursor:
+                break
+        return server_ids
 
     def cookie_account(self):
         """Returns the logged-in account name, or None if the cookie is not valid."""
@@ -203,14 +226,23 @@ def build_roster(roblox, config):
     return roster, missing
 
 
-def classify(presence, place_id):
+def classify(presence, place_id, public_servers=None):
     if presence.get("userPresenceType") != IN_GAME_PRESENCE:
         return "out"
     root = presence.get("rootPlaceId")
     place = presence.get("placeId")
     if root is None and place is None:
         return "hidden"  # In some game, but Roblox will not say which.
-    return "in_game" if place_id in (root, place) else "out"
+    if place_id not in (root, place):
+        return "out"
+    # They are in the right game. If we have a public server list, check whether
+    # their server is public. Private servers (Kamino, reserved slots, etc.) are
+    # treated as "out" so guards are not alerted unnecessarily.
+    game_id = presence.get("gameId")
+    if public_servers is not None and game_id and game_id not in public_servers:
+        log.debug("Skipping %s — server %s is not public (likely Kamino/private)", presence.get("userId"), game_id)
+        return "private"
+    return "in_game"
 
 
 class Tracker:
@@ -224,6 +256,8 @@ class Tracker:
         self.state_path = Path(settings["state_file"])
         self.first_run = not self.state_path.exists()
         self.state = self._load_state()
+        self._public_servers = None       # Cached set of public server gameIds
+        self._public_servers_due = 0      # When to refresh the cache
 
     def _load_state(self):
         try:
@@ -259,11 +293,24 @@ class Tracker:
             self.roster = roster
         return missing
 
+    def _get_public_servers(self, now):
+        """Returns the cached public server set, refreshing if stale."""
+        if now >= self._public_servers_due:
+            try:
+                self._public_servers = self.roblox.public_servers(self.place_id)
+                log.debug("Public server list refreshed: %d servers", len(self._public_servers))
+            except Exception as error:
+                log.warning("Could not refresh public server list: %s", type(error).__name__)
+                # Keep using the old cache rather than blocking all alerts.
+            self._public_servers_due = now + PUBLIC_SERVERS_CACHE_SECONDS
+        return self._public_servers
+
     def poll(self, now=None):
         """Checks everyone once and returns the alerts to send as (embed, ping)."""
         now = now or time.time()
         presences = self.roblox.presences(list(self.roster))
         by_user = {item["userId"]: item for item in presences}
+        public_servers = self._get_public_servers(now)
         joined, left, hidden_new = [], [], []
 
         for user_id, vip in self.roster.items():
@@ -272,7 +319,10 @@ class Tracker:
                 key, {"status": "out", "missed": 0, "pinged_at": 0, "server": None}
             )
             presence = by_user.get(user_id)
-            current = classify(presence, self.place_id) if presence else "out"
+            current = classify(presence, self.place_id, public_servers) if presence else "out"
+            # Treat private server the same as "out" for status tracking purposes.
+            if current == "private":
+                current = "out"
             previous = record["status"]
 
             if current == "in_game":
