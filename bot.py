@@ -311,7 +311,7 @@ class Tracker:
         presences = self.roblox.presences(list(self.roster))
         by_user = {item["userId"]: item for item in presences}
         public_servers = self._get_public_servers(now)
-        joined, left, hidden_new = [], [], []
+        joined, left, hidden_new, went_private = [], [], [], []
 
         for user_id, vip in self.roster.items():
             key = str(user_id)
@@ -320,9 +320,6 @@ class Tracker:
             )
             presence = by_user.get(user_id)
             current = classify(presence, self.place_id, public_servers) if presence else "out"
-            # Treat private server the same as "out" for status tracking purposes.
-            if current == "private":
-                current = "out"
             previous = record["status"]
 
             if current == "in_game":
@@ -331,14 +328,25 @@ class Tracker:
                 if previous != "in_game":
                     record["status"] = "in_game"
                     joined.append(vip)
+            elif current == "private":
+                # VIP is in a private/Kamino server inside the game.
+                record["missed"] = 0
+                if previous == "in_game":
+                    # They moved from Coruscant to Kamino — alert guards to stand down.
+                    record["status"] = "private"
+                    went_private.append(vip)
+                elif previous != "private":
+                    record["status"] = "private"
             elif previous == "in_game" and current == "hidden":
                 record["missed"] = 0  # Assume they stayed; the game is just not visible.
-            elif previous == "in_game":
+            elif previous in ("in_game", "private"):
                 # Roblox presence flickers, so a leave needs several misses in a row.
                 record["missed"] += 1
                 if record["missed"] >= self.settings["offline_polls"]:
                     record.update(status="out", missed=0, server=None)
-                    left.append(vip)
+                    if previous == "in_game":
+                        left.append(vip)
+                    # If they were already in a private server, leave silently.
             elif current == "hidden" and previous == "out":
                 record["status"] = "hidden"
                 hidden_new.append(vip)
@@ -349,6 +357,7 @@ class Tracker:
         if not self.first_run:
             alerts += [self._join_alert(vip, now) for vip in joined]
             alerts += [(self._embed(vip, "VIP left the game", 0xD32F2F, now), False) for vip in left]
+            alerts += [(self._private_embed(vip, now), False) for vip in went_private]
             if self.settings["post_hidden"]:
                 alerts += [(self._hidden_embed(vip, now), False) for vip in hidden_new]
         self._save_state()
@@ -408,6 +417,11 @@ class Tracker:
     def _hidden_embed(self, vip, now):
         embed = self._embed(vip, "VIP in an unknown game", 0xF9A825, now)
         embed["footer"] = {"text": "Their privacy settings hide which game this is."}
+        return embed
+
+    def _private_embed(self, vip, now):
+        embed = self._embed(vip, "VIP moved to private server", 0xFF6F00, now)
+        embed["footer"] = {"text": "They may have joined Kamino or a reserved server. Stand down until they return to Coruscant."}
         return embed
 
 
